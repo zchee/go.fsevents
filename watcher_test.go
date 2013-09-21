@@ -51,7 +51,7 @@ func TestEventFlags(t *testing.T) {
 		case events := <-ch:
 			assert.Equals(t, len(events), 2)
 
-			assert.True(t, events[1].Flags&FlagItemCreated != 0)
+			assert.True(t, events[1].Flags&EF_CREATED != 0)
 		case <-time.After(time.Second * 1):
 			t.Errorf("should have got some file event, but timed out")
 		}

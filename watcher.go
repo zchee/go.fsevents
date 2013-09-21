@@ -13,21 +13,36 @@ import "C"
 import "unsafe"
 
 const (
-	FlagUnmount = uint32(C.kFSEventStreamEventFlagUnmount)
-	FlagMount   = uint32(C.kFSEventStreamEventFlagMount)
+	EF_NONE            uint32 = 0
+	EF_MUSTSCANSUBDIRS uint32 = 1 << (iota - 1)
+	EF_USERDROPPED
+	EF_KERNELDROPPED
+	EF_EVENTIDSWRAPPED
+	EF_HISTORYDONE
+	EF_ROOTCHANGED
+	EF_MOUNT
+	EF_UNMOUNT
 
-	FlagItemCreated       = uint32(C.kFSEventStreamEventFlagItemCreated)
-	FlagItemRemoved       = uint32(C.kFSEventStreamEventFlagItemRemoved)
-	FlagItemInodeMetaMod  = uint32(C.kFSEventStreamEventFlagItemInodeMetaMod)
-	FlagItemRenamed       = uint32(C.kFSEventStreamEventFlagItemRenamed)
-	FlagItemModified      = uint32(C.kFSEventStreamEventFlagItemModified)
-	FlagItemFinderInfoMod = uint32(C.kFSEventStreamEventFlagItemFinderInfoMod)
-	FlagItemChangeOwner   = uint32(C.kFSEventStreamEventFlagItemChangeOwner)
-	FlagItemXattrMod      = uint32(C.kFSEventStreamEventFlagItemXattrMod)
+	EF_CREATED
+	EF_REMOVED
+	EF_INODEMETAMOD
+	EF_RENAMED
+	EF_MODIFIED
+	EF_FINDERINFOMOD
+	EF_CHANGEOWNER
+	EF_XATTRMOD
+	EF_ISFILE
+	EF_ISDIR
+	EF_ISSYMLINK
+)
 
-	FlagItemIsFile    = uint32(C.kFSEventStreamEventFlagItemIsFile)
-	FlagItemIsDir     = uint32(C.kFSEventStreamEventFlagItemIsDir)
-	FlagItemIsSymlink = uint32(C.kFSEventStreamEventFlagItemIsSymlink)
+const (
+	CF_NONE       uint32 = 0
+	CF_USECFTYPES uint32 = 1 << (iota - 1)
+	CF_NODEFER
+	CF_WATCHROOT
+	CF_IGNORESELF
+	CF_FILEEVENTS
 )
 
 type watchingInfo struct {
