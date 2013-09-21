@@ -17,11 +17,23 @@ fswatch_callback(ConstFSEventStreamRef streamRef,
       (FSEventStreamEventId*)eventIds);
 }
 
-FSEventStreamRef fswatch_stream_for_paths(CFMutableArrayRef pathsToWatch, FSEventStreamEventId since, CFTimeInterval latency, FSEventStreamCreateFlags flags) {
+FSEventStreamRef fswatch_create(CFMutableArrayRef pathsToWatch, FSEventStreamEventId since, CFTimeInterval latency, FSEventStreamCreateFlags flags) {
   return FSEventStreamCreate(
       NULL,
       fswatch_callback,
       NULL,
+      pathsToWatch,
+      since,
+      latency,
+      flags);
+}
+
+FSEventStreamRef fswatch_create_relative_to_device(dev_t deviceToWatch,CFMutableArrayRef pathsToWatch, FSEventStreamEventId since, CFTimeInterval latency, FSEventStreamCreateFlags flags) {
+  return FSEventStreamCreateRelativeToDevice(
+      NULL,
+      fswatch_callback,
+      NULL,
+      deviceToWatch,
       pathsToWatch,
       since,
       latency,

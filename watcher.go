@@ -3,8 +3,10 @@ package fsevents
 /*
 #cgo LDFLAGS: -framework CoreServices
 #include <CoreServices/CoreServices.h>
-FSEventStreamRef fswatch_stream_for_paths(CFMutableArrayRef, FSEventStreamEventId,
+FSEventStreamRef fswatch_create(CFMutableArrayRef, FSEventStreamEventId,
 	CFTimeInterval, FSEventStreamCreateFlags);
+FSEventStreamRef fswatch_create_relative_to_device(dev_t , CFMutableArrayRef,
+	FSEventStreamEventId , CFTimeInterval , FSEventStreamCreateFlags);
 static CFMutableArrayRef fswatch_make_mutable_array() {
   return CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
 }
@@ -91,13 +93,11 @@ func Current() EventID {
 	return EventID(C.FSEventsGetCurrentEventId())
 }
 
-func CurrentForDevice(dev Device) EventID {
-	// C.FSEventsGetCurrentEventId(dev)
-	return 0
-}
-
-func LastEventBefore(dev Device, time time.Time) EventID {
-	return 0
+func LastEventBefore(dev Device, ts time.Time) EventID {
+	return EventID(
+		C.FSEventsGetLastEventIdForDeviceBeforeTime(
+			C.dev_t(dev),
+			C.CFAbsoluteTime(ts.Unix())))
 }
 
 // TODO: FSEventsPurgeEventsForDeviceUpToEventId
@@ -111,22 +111,62 @@ func LastEventBefore(dev Device, time time.Time) EventID {
 func Create(paths []string, since EventID, interval time.Duration,
 	flags CreateFlags, cb Callback) Stream {
 
-	pathsToWatch := C.fswatch_make_mutable_array()
-	defer C.CFRelease(C.CFTypeRef(pathsToWatch))
+	var stream Stream
+	convertForCreate(paths, since, interval, flags,
+		func(ps C.CFMutableArrayRef, s C.FSEventStreamEventId,
+			i C.CFTimeInterval, fs C.FSEventStreamCreateFlags) {
 
+			stream = Stream(C.fswatch_create(
+				ps,
+				s,
+				i,
+				fs))
+		})
+	return stream
+}
+
+func CreateRelativeToDevice(dev Device, paths []string, since EventID, interval time.Duration,
+	flags CreateFlags, cb Callback) Stream {
+
+	cdev := C.dev_t(dev)
+
+	var stream Stream
+	convertForCreate(paths, since, interval, flags,
+		func(ps C.CFMutableArrayRef, s C.FSEventStreamEventId,
+			i C.CFTimeInterval, fs C.FSEventStreamCreateFlags) {
+
+			stream = Stream(C.fswatch_create_relative_to_device(
+				cdev,
+				ps,
+				s,
+				i,
+				fs))
+		})
+	return stream
+}
+
+func convertForCreate(paths []string, since EventID, interval time.Duration,
+	flags CreateFlags,
+	cb func(C.CFMutableArrayRef,
+		C.FSEventStreamEventId,
+		C.CFTimeInterval,
+		C.FSEventStreamCreateFlags)) {
+
+	cpaths := C.fswatch_make_mutable_array()
+	defer C.CFRelease(C.CFTypeRef(cpaths))
 	for _, dir := range paths {
 		path := C.CString(dir)
 		defer C.free(unsafe.Pointer(path))
 
 		str := C.CFStringCreateWithCString(nil, path, C.kCFStringEncodingUTF8)
-		C.CFArrayAppendValue(pathsToWatch, unsafe.Pointer(str))
+		C.CFArrayAppendValue(cpaths, unsafe.Pointer(str))
 	}
 
-	return Stream(C.fswatch_stream_for_paths(
-		pathsToWatch,
-		C.FSEventStreamEventId(since),
-		C.CFTimeInterval(interval/time.Second),
-		C.FSEventStreamCreateFlags(flags)))
+	csince := C.FSEventStreamEventId(since)
+	cinterval := C.CFTimeInterval(interval / time.Second)
+	cflags := C.FSEventStreamCreateFlags(flags)
+
+	cb(cpaths, csince, cinterval, cflags)
 }
 
 func Unwatch(ch chan []PathEvent) {
@@ -160,7 +200,7 @@ func WatchPaths(paths []string) chan []PathEvent {
 			C.CFArrayAppendValue(pathsToWatch, unsafe.Pointer(str))
 		}
 
-		stream := C.fswatch_stream_for_paths(pathsToWatch,
+		stream := C.fswatch_create(pathsToWatch,
 			C.FSEventStreamEventId(NOW),
 			0.1,
 			C.kFSEventStreamCreateFlagNoDefer|C.kFSEventStreamCreateFlagFileEvents)

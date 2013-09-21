@@ -4,6 +4,7 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"testing"
 )
@@ -20,19 +21,39 @@ func TestCurrent(t *testing.T) {
 	assert.True(t, id1 == id2)
 }
 
-func TestCurrentEventForDevice(t *testing.T) {
-	// id := CurrentForDevice(dev)
-	assert.True(t, false)
-}
-
 func TestLastEventBefore(t *testing.T) {
-	assert.True(t, false)
+	base, rm := TempDir()
+	defer rm()
+
+	fi, _ := os.Stat(base)
+	dev := Device(fi.Sys().(*syscall.Stat_t).Dev)
+	id := LastEventBefore(dev, time.Now())
+	assert.True(t, id != 0)
 }
 
 func TestCreate(t *testing.T) {
 	base, rm := TempDir()
 	defer rm()
 	stream := Create(
+		[]string{base},
+		NOW,
+		time.Millisecond*50,
+		CF_NODEFER|CF_FILEEVENTS,
+		func(s Stream, es []Event) {
+			println(s)
+		})
+	assert.True(t, stream != nil)
+}
+
+func TestCreateRelativeToDevice(t *testing.T) {
+	base, rm := TempDir()
+	defer rm()
+
+	fi, _ := os.Stat(base)
+	dev := Device(fi.Sys().(*syscall.Stat_t).Dev)
+
+	stream := CreateRelativeToDevice(
+		dev,
 		[]string{base},
 		NOW,
 		time.Millisecond*50,
