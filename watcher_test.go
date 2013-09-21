@@ -14,6 +14,35 @@ import (
 	"time"
 )
 
+func TestCurrent(t *testing.T) {
+	id1 := Current()
+	id2 := Current()
+	assert.True(t, id1 == id2)
+}
+
+func TestCurrentEventForDevice(t *testing.T) {
+	// id := CurrentForDevice(dev)
+	assert.True(t, false)
+}
+
+func TestLastEventBefore(t *testing.T) {
+	assert.True(t, false)
+}
+
+func TestCreate(t *testing.T) {
+	base, rm := TempDir()
+	defer rm()
+	stream := Create(
+		[]string{base},
+		NOW,
+		time.Millisecond*50,
+		CF_NODEFER|CF_FILEEVENTS,
+		func(s Stream, es []Event) {
+			println(s)
+		})
+	assert.True(t, stream != nil)
+}
+
 func withCreate(base string, action func(string)) {
 	dummyfile := "dummyfile.txt"
 	os.Create(filepath.Join(base, dummyfile))

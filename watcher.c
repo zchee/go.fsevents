@@ -13,16 +13,17 @@ fswatch_callback(ConstFSEventStreamRef streamRef,
       (FSEventStreamRef)streamRef,
       numEvents,
       eventPaths,
-      (FSEventStreamEventFlags*)eventFlags);
+      (FSEventStreamEventFlags*)eventFlags,
+      (FSEventStreamEventId*)eventIds);
 }
 
-FSEventStreamRef fswatch_stream_for_paths(CFMutableArrayRef pathsToWatch) {
+FSEventStreamRef fswatch_stream_for_paths(CFMutableArrayRef pathsToWatch, FSEventStreamEventId since, CFTimeInterval latency, FSEventStreamCreateFlags flags) {
   return FSEventStreamCreate(
       NULL,
       fswatch_callback,
       NULL,
       pathsToWatch,
-      kFSEventStreamEventIdSinceNow,
-      0.1,
-      kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagFileEvents);
+      since,
+      latency,
+      flags);
 }
