@@ -42,7 +42,22 @@ func TestCreate(t *testing.T) {
 		func(s Stream, es []Event) {
 			println(s)
 		})
-	assert.True(t, stream != nil)
+	assert.True(t, stream != 0)
+}
+
+func TestStreamPaths(t *testing.T) {
+	base, rm := TempDir()
+	defer rm()
+	stream := Create(
+		[]string{base},
+		NOW,
+		time.Millisecond*50,
+		CF_NODEFER|CF_FILEEVENTS,
+		func(s Stream, es []Event) {
+			println(s)
+		})
+	path := stream.Paths()[0]
+	assert.True(t, path == base)
 }
 
 func TestCreateRelativeToDevice(t *testing.T) {
@@ -61,7 +76,78 @@ func TestCreateRelativeToDevice(t *testing.T) {
 		func(s Stream, es []Event) {
 			println(s)
 		})
-	assert.True(t, stream != nil)
+	assert.True(t, stream != 0)
+}
+
+func TestFlushAsync(t *testing.T) {
+	base, rm := TempDir()
+	defer rm()
+	stream := Create(
+		[]string{base},
+		NOW,
+		time.Millisecond*50,
+		CF_NODEFER|CF_FILEEVENTS,
+		func(s Stream, es []Event) {
+			println(s)
+		})
+	stream.Start()
+	println(stream)
+	event := stream.FlushAsync()
+	assert.True(t, event != 0)
+}
+
+func TestFlush(t *testing.T) {
+	base, rm := TempDir()
+	defer rm()
+	stream := Create(
+		[]string{base},
+		NOW,
+		time.Millisecond*50,
+		CF_NODEFER|CF_FILEEVENTS,
+		func(s Stream, es []Event) {
+			println(s)
+		})
+	stream.Start()
+	stream.Flush()
+}
+
+func TestStreamDevice(t *testing.T) {
+	base, rm := TempDir()
+	defer rm()
+
+	fi, _ := os.Stat(base)
+	dev := Device(fi.Sys().(*syscall.Stat_t).Dev)
+
+	stream := Create(
+		[]string{base},
+		NOW,
+		time.Millisecond*50,
+		CF_NODEFER|CF_FILEEVENTS,
+		func(s Stream, es []Event) {
+			println(s)
+		})
+
+	adev := stream.Device()
+	println(dev, adev)
+	assert.True(t, dev == adev)
+}
+
+func TestStart(t *testing.T) {
+	base, rm := TempDir()
+	defer rm()
+
+	stream := Create(
+		[]string{base},
+		NOW,
+		time.Millisecond*50,
+		CF_NODEFER|CF_FILEEVENTS,
+		func(s Stream, es []Event) {
+			println(s)
+		})
+	ok := stream.Start()
+	if ok != true {
+		t.Fatal("failed to start the stream")
+	}
 }
 
 func withCreate(base string, action func(string)) {
