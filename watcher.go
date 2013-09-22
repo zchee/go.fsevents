@@ -73,17 +73,12 @@ type Event struct {
 type Callback func(Stream, []Event)
 
 type watchingInfo struct {
-	channel  chan []PathEvent
+	channel  chan []Event
 	runloop  C.CFRunLoopRef
 	callback Callback
 }
 
 var watchers = make(map[Stream]watchingInfo)
-
-type PathEvent struct {
-	Path  string
-	Flags EventFlags
-}
 
 func Current() EventID {
 	return EventID(C.FSEventsGetCurrentEventId())
@@ -236,23 +231,23 @@ func (s Stream) Start() bool {
 		return false
 	}
 
-	newChan := make(chan []PathEvent)
-	watchers[watchingData.stream] = watchingInfo{
-		channel: newChan,
-		runloop: watchingData.runloop,
-	}
+	newChan := make(chan []Event)
+	info := watchers[watchingData.stream]
+	info.channel = newChan
+	info.runloop = watchingData.runloop
+	watchers[watchingData.stream] = info
 	return true
 }
 
 func (s Stream) Stop() {
-	info := watchers[s]
 	C.FSEventStreamStop(C.FSEventStreamRef(unsafe.Pointer(s)))
 	C.FSEventStreamInvalidate(C.FSEventStreamRef(unsafe.Pointer(s)))
 	C.FSEventStreamRelease(C.FSEventStreamRef(unsafe.Pointer(s)))
-	C.CFRunLoopStop(info.runloop)
+	C.CFRunLoopStop(watchers[s].runloop)
+	delete(watchers, s)
 }
 
-func Unwatch(ch chan []PathEvent) {
+func Unwatch(ch chan []Event) {
 	for stream, info := range watchers {
 		if ch == info.channel {
 			C.FSEventStreamStop(C.FSEventStreamRef(unsafe.Pointer(stream)))
@@ -263,7 +258,7 @@ func Unwatch(ch chan []PathEvent) {
 	}
 }
 
-func WatchPaths(paths []string) chan []PathEvent {
+func WatchPaths(paths []string) chan []Event {
 	type watchSuccessData struct {
 		runloop C.CFRunLoopRef
 		stream  Stream
@@ -307,17 +302,20 @@ func WatchPaths(paths []string) chan []PathEvent {
 		return nil
 	}
 
-	newChan := make(chan []PathEvent)
+	newChan := make(chan []Event)
 	watchers[watchingData.stream] = watchingInfo{
 		channel: newChan,
 		runloop: watchingData.runloop,
+		callback: func(s Stream, es []Event) {
+			println(es[0].Path)
+		},
 	}
 	return newChan
 }
 
 //export watchDirsCallback
 func watchDirsCallback(stream C.FSEventStreamRef, count C.size_t, paths **C.char, flags *C.FSEventStreamEventFlags, ids *C.FSEventStreamEventId) {
-	var events []PathEvent
+	var events []Event
 
 	for i := 0; i < int(count); i++ {
 		cpaths := uintptr(unsafe.Pointer(paths)) + (uintptr(i) * unsafe.Sizeof(*paths))
@@ -326,11 +324,17 @@ func watchDirsCallback(stream C.FSEventStreamRef, count C.size_t, paths **C.char
 		cflags := uintptr(unsafe.Pointer(flags)) + (uintptr(i) * unsafe.Sizeof(*flags))
 		cflag := *(*C.FSEventStreamEventFlags)(unsafe.Pointer(cflags))
 
-		events = append(events, PathEvent{
+		cids := uintptr(unsafe.Pointer(ids)) + (uintptr(i) * unsafe.Sizeof(*ids))
+		cid := *(*C.FSEventStreamEventFlags)(unsafe.Pointer(cids))
+
+		events = append(events, Event{
+			Id:    EventID(cid),
 			Path:  C.GoString(cpath),
 			Flags: EventFlags(cflag),
 		})
 	}
-
-	watchers[Stream(unsafe.Pointer(stream))].channel <- events
+	s := Stream(unsafe.Pointer(stream))
+	info := watchers[s]
+	info.channel <- events
+	info.callback(s, events)
 }

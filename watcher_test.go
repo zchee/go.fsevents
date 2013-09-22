@@ -91,7 +91,8 @@ func TestFlushAsync(t *testing.T) {
 			println(s)
 		})
 	stream.Start()
-	println(stream)
+	ioutil.WriteFile(base+"/holla", []byte{}, 777)
+	time.Sleep(time.Millisecond * 50)
 	event := stream.FlushAsync()
 	assert.True(t, event != 0)
 }
@@ -118,7 +119,8 @@ func TestStreamDevice(t *testing.T) {
 	fi, _ := os.Stat(base)
 	dev := Device(fi.Sys().(*syscall.Stat_t).Dev)
 
-	stream := Create(
+	stream := CreateRelativeToDevice(
+		dev,
 		[]string{base},
 		NOW,
 		time.Millisecond*50,
@@ -128,7 +130,6 @@ func TestStreamDevice(t *testing.T) {
 		})
 
 	adev := stream.Device()
-	println(dev, adev)
 	assert.True(t, dev == adev)
 }
 
@@ -148,6 +149,25 @@ func TestStart(t *testing.T) {
 	if ok != true {
 		t.Fatal("failed to start the stream")
 	}
+}
+
+func TestStop(t *testing.T) {
+	base, rm := TempDir()
+	defer rm()
+
+	stream := Create(
+		[]string{base},
+		NOW,
+		time.Millisecond*50,
+		CF_NODEFER|CF_FILEEVENTS,
+		func(s Stream, es []Event) {
+			println(s)
+		})
+	ok := stream.Start()
+	if ok != true {
+		t.Fatal("failed to start the stream")
+	}
+	stream.Stop()
 }
 
 func withCreate(base string, action func(string)) {
@@ -256,7 +276,7 @@ func TestMultipleFile(t *testing.T) {
 	defer rm()
 
 	f := make(chan bool)
-	var ch chan ([]PathEvent)
+	var ch chan ([]Event)
 	go func() {
 		ch = WatchPaths([]string{base})
 		f <- true
