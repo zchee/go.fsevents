@@ -66,11 +66,15 @@ const (
 )
 
 type EventID C.FSEventStreamEventId
-type Device C.dev_t
 
 // EventID has type UInt64 but this constant is represented as -1
-// which has the following representation in memory
+// which is represented by 63 1's in memory
 const NOW EventID = (1 << 64) - 1
+
+// UUID representing a Mountpoint in OS X.
+// fi, _ := os.Stat("")
+// dev := Device(fi.Sys().(*syscall.Stat_t).Dev)
+type Device C.dev_t
 
 type Stream struct {
 	Chan    chan []Event
@@ -84,10 +88,12 @@ type Event struct {
 	Flags EventFlags
 }
 
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_4
 func Current() EventID {
 	return EventID(C.FSEventsGetCurrentEventId())
 }
 
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_5
 func LastEventBefore(dev Device, ts time.Time) EventID {
 	return EventID(
 		C.FSEventsGetLastEventIdForDeviceBeforeTime(
@@ -97,6 +103,7 @@ func LastEventBefore(dev Device, ts time.Time) EventID {
 
 // TODO: FSEventsPurgeEventsForDeviceUpToEventId
 
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_8
 func (s Stream) Paths() []string {
 	cpaths := C.FSEventStreamCopyPathsBeingWatched(s.cstream)
 	defer C.CFRelease(C.CFTypeRef(cpaths))
@@ -127,7 +134,8 @@ func fromCFString(cstr C.CFStringRef) string {
 	return C.GoString(&buf[0])
 }
 
-func Create(paths []string, since EventID, interval time.Duration,
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_9
+func New(paths []string, since EventID, interval time.Duration,
 	flags CreateFlags) *Stream {
 
 	ch, ctx, ps, s, i, fs := convertForCreate(paths, since, interval, flags)
@@ -136,7 +144,8 @@ func Create(paths []string, since EventID, interval time.Duration,
 	return &Stream{Chan: ch, cstream: cstream}
 }
 
-func CreateRelativeToDevice(dev Device, paths []string, since EventID,
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_10
+func NewRelative(dev Device, paths []string, since EventID,
 	interval time.Duration, flags CreateFlags) *Stream {
 
 	cdev := C.dev_t(dev)
@@ -177,10 +186,16 @@ func releaseArray(ps C.CFMutableArrayRef) {
 	C.free(unsafe.Pointer(ps))
 }
 
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_14
 func (s Stream) LatestEventID() EventID {
 	return EventID(C.FSEventStreamGetLatestEventId(s.cstream))
 }
 
+// Schedules the Stream on a new thread
+// and starts delivering events on the channel.
+//
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_20
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_17
 func (s *Stream) Start() bool {
 	type watchSuccessData struct {
 		runloop C.CFRunLoopRef
@@ -210,32 +225,40 @@ func (s *Stream) Start() bool {
 	return true
 }
 
-func (s Stream) FlushAsync() EventID {
-	return EventID(C.FSEventStreamFlushAsync(s.cstream))
-}
-
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_12
 func (s Stream) Flush() {
 	C.FSEventStreamFlushSync(s.cstream)
 }
 
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_11
+func (s Stream) FlushAsync() EventID {
+	return EventID(C.FSEventStreamFlushAsync(s.cstream))
+}
+
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_13
 func (s Stream) Device() Device {
 	return Device(C.FSEventStreamGetDeviceBeingWatched(s.cstream))
 }
 
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_21
 func (s Stream) Stop() {
 	C.FSEventStreamStop(s.cstream)
 }
 
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_15
 func (s Stream) Invalidate() {
 	C.FSEventStreamInvalidate(s.cstream)
 }
 
+// Releases all resources and closes the channel
+// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_16
 func (s Stream) Release() {
 	C.FSEventStreamRelease(s.cstream)
 	C.CFRunLoopStop(s.runloop)
 	close(s.Chan)
 }
 
+// Convenience function: flushes, stops, invalidates and releases the stream
 func (s Stream) Close() {
 	s.Flush()
 	s.Stop()
