@@ -38,11 +38,8 @@ func TestCreate(t *testing.T) {
 		[]string{base},
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
-		func(s Stream, es []Event) {
-			println(s)
-		})
-	assert.True(t, stream != 0)
+		CF_NODEFER|CF_FILEEVENTS)
+	assert.True(t, stream.Chan != nil)
 }
 
 func TestStreamPaths(t *testing.T) {
@@ -52,10 +49,7 @@ func TestStreamPaths(t *testing.T) {
 		[]string{base},
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
-		func(s Stream, es []Event) {
-			println(s)
-		})
+		CF_NODEFER|CF_FILEEVENTS)
 	path := stream.Paths()[0]
 	assert.True(t, path == base)
 }
@@ -72,11 +66,8 @@ func TestCreateRelativeToDevice(t *testing.T) {
 		[]string{base},
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
-		func(s Stream, es []Event) {
-			println(s)
-		})
-	assert.True(t, stream != 0)
+		CF_NODEFER|CF_FILEEVENTS)
+	assert.True(t, stream.Chan != nil)
 }
 
 func TestFlushAsync(t *testing.T) {
@@ -86,10 +77,7 @@ func TestFlushAsync(t *testing.T) {
 		[]string{base},
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
-		func(s Stream, es []Event) {
-			println(s)
-		})
+		CF_NODEFER|CF_FILEEVENTS)
 	stream.Start()
 	ioutil.WriteFile(base+"/holla", []byte{}, 777)
 	time.Sleep(time.Millisecond * 50)
@@ -104,10 +92,7 @@ func TestFlush(t *testing.T) {
 		[]string{base},
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
-		func(s Stream, es []Event) {
-			println(s)
-		})
+		CF_NODEFER|CF_FILEEVENTS)
 	stream.Start()
 	stream.Flush()
 }
@@ -124,10 +109,7 @@ func TestStreamDevice(t *testing.T) {
 		[]string{base},
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
-		func(s Stream, es []Event) {
-			println(s)
-		})
+		CF_NODEFER|CF_FILEEVENTS)
 
 	adev := stream.Device()
 	assert.True(t, dev == adev)
@@ -141,10 +123,7 @@ func TestStart(t *testing.T) {
 		[]string{base},
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
-		func(s Stream, es []Event) {
-			println(s)
-		})
+		CF_NODEFER|CF_FILEEVENTS)
 	ok := stream.Start()
 	if ok != true {
 		t.Fatal("failed to start the stream")
@@ -159,10 +138,7 @@ func TestStop(t *testing.T) {
 		[]string{base},
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
-		func(s Stream, es []Event) {
-			println(s)
-		})
+		CF_NODEFER|CF_FILEEVENTS)
 	ok := stream.Start()
 	if ok != true {
 		t.Fatal("failed to start the stream")
@@ -180,15 +156,16 @@ func withCreate(base string, action func(string)) {
 }
 
 func TestFileChanges(t *testing.T) {
-	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	ch := WatchPaths([]string{base})
+	s := Create([]string{base}, NOW, time.Second/10, CF_FILEEVENTS)
+	s.Start()
+	defer s.Close()
 
 	withCreate(base, func(dummyfile string) {
 		select {
-		case <-ch:
+		case <-s.Chan:
 		case <-time.After(time.Second * 1):
 			t.Errorf("should have got some file event, but timed out")
 		}
@@ -196,15 +173,16 @@ func TestFileChanges(t *testing.T) {
 }
 
 func TestEventFlags(t *testing.T) {
-	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	ch := WatchPaths([]string{base})
+	s := Create([]string{base}, NOW, time.Second/10, CF_FILEEVENTS)
+	s.Start()
+	defer s.Close()
 
 	withCreate(base, func(dummyfile string) {
 		select {
-		case events := <-ch:
+		case events := <-s.Chan:
 			assert.Equals(t, len(events), 2)
 
 			assert.True(t, events[1].Flags&EF_CREATED != 0)
@@ -215,15 +193,16 @@ func TestEventFlags(t *testing.T) {
 }
 
 func TestCanGetPath(t *testing.T) {
-	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	ch := WatchPaths([]string{base})
+	s := Create([]string{base}, NOW, time.Second/10, CF_FILEEVENTS)
+	s.Start()
+	defer s.Close()
 
 	withCreate(base, func(dummyfile string) {
 		select {
-		case events := <-ch:
+		case events := <-s.Chan:
 			assert.Equals(t, len(events), 2)
 
 			fullpath, _ := filepath.Abs(dummyfile)
@@ -237,52 +216,48 @@ func TestCanGetPath(t *testing.T) {
 }
 
 func TestOnlyWatchesSpecifiedPaths(t *testing.T) {
-	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	ch := WatchPaths([]string{filepath.Join(base, "imaginaryfile")})
+	s := Create([]string{filepath.Join(base, "imaginaryfile")}, NOW, time.Second/10, CF_FILEEVENTS)
+	s.Start()
+	defer s.Close()
 
 	withCreate(base, func(dummyfile string) {
 		select {
-		case <-ch:
-			t.Errorf("should have timed out, but got some file event")
+		case evs := <-s.Chan:
+			t.Errorf("should have timed out, but received:%v", evs)
 		case <-time.After(time.Second * 1):
 		}
 	})
 }
 
 func TestCanUnwatch(t *testing.T) {
-	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	ch := WatchPaths([]string{base})
-
-	Unwatch(ch)
+	s := Create([]string{base}, NOW, time.Second/10, CF_FILEEVENTS)
+	s.Start()
+	s.Close()
 
 	withCreate(base, func(dummyfile string) {
 		select {
-		case <-ch:
-			t.Errorf("should have timed out, but got some file event")
+		case evs, ok := <-s.Chan:
+			if ok {
+				t.Errorf("should have timed out, but received: %#v", evs)
+			}
 		case <-time.After(time.Second * 1):
 		}
 	})
 }
 
 func TestMultipleFile(t *testing.T) {
-	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	f := make(chan bool)
-	var ch chan ([]Event)
-	go func() {
-		ch = WatchPaths([]string{base})
-		f <- true
-	}()
-	<-f
-	// defer Unwatch(ch)
+	s := Create([]string{base}, NOW, time.Second/10, CF_FILEEVENTS)
+	s.Start()
+	defer s.Close()
 
 	files := []string{"holla", "huhu", "heeeho", "haha"}
 	for _, f := range files {
@@ -293,7 +268,7 @@ func TestMultipleFile(t *testing.T) {
 LOOP:
 	for {
 		select {
-		case e, ok := <-ch:
+		case e, ok := <-s.Chan:
 			if !ok {
 				break LOOP
 			}

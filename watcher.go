@@ -3,10 +3,19 @@ package fsevents
 /*
 #cgo LDFLAGS: -framework CoreServices
 #include <CoreServices/CoreServices.h>
-FSEventStreamRef fswatch_create(CFMutableArrayRef, FSEventStreamEventId,
-	CFTimeInterval, FSEventStreamCreateFlags);
-FSEventStreamRef fswatch_create_relative_to_device(dev_t , CFMutableArrayRef,
-	FSEventStreamEventId , CFTimeInterval , FSEventStreamCreateFlags);
+FSEventStreamRef fswatch_create(
+	FSEventStreamContext*,
+	CFMutableArrayRef,
+	FSEventStreamEventId,
+	CFTimeInterval,
+	FSEventStreamCreateFlags);
+FSEventStreamRef fswatch_create_relative_to_device(
+	dev_t,
+	FSEventStreamContext*,
+	CFMutableArrayRef,
+	FSEventStreamEventId,
+	CFTimeInterval,
+	FSEventStreamCreateFlags);
 static CFMutableArrayRef fswatch_make_mutable_array() {
   return CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
 }
@@ -23,7 +32,7 @@ type CreateFlags uint32
 
 const (
 	CF_NONE       CreateFlags = 0
-	CF_USECFTYPES CreateFlags = 1 << (iota - 1)
+	CF_USECFTYPES CreateFlags = 1 << (iota - 1) //this flag is ignored
 	CF_NODEFER
 	CF_WATCHROOT
 	CF_IGNORESELF
@@ -58,27 +67,22 @@ const (
 
 type EventID C.FSEventStreamEventId
 type Device C.dev_t
-type Stream uintptr
 
 // EventID has type UInt64 but this constant is represented as -1
 // which has the following representation in memory
 const NOW EventID = (1 << 64) - 1
+
+type Stream struct {
+	Chan    chan []Event
+	cstream C.FSEventStreamRef
+	runloop C.CFRunLoopRef
+}
 
 type Event struct {
 	Id    EventID
 	Path  string
 	Flags EventFlags
 }
-
-type Callback func(Stream, []Event)
-
-type watchingInfo struct {
-	channel  chan []Event
-	runloop  C.CFRunLoopRef
-	callback Callback
-}
-
-var watchers = make(map[Stream]watchingInfo)
 
 func Current() EventID {
 	return EventID(C.FSEventsGetCurrentEventId())
@@ -94,20 +98,19 @@ func LastEventBefore(dev Device, ts time.Time) EventID {
 // TODO: FSEventsPurgeEventsForDeviceUpToEventId
 
 func (s Stream) Paths() []string {
-	cpaths := C.FSEventStreamCopyPathsBeingWatched(
-		C.FSEventStreamRef(unsafe.Pointer(s)))
+	cpaths := C.FSEventStreamCopyPathsBeingWatched(s.cstream)
 	defer C.CFRelease(C.CFTypeRef(cpaths))
 	count := C.CFArrayGetCount(cpaths)
 	paths := make([]string, count)
 	var i C.CFIndex
 	for ; i < count; i++ {
 		cpath := C.CFStringRef(C.CFArrayGetValueAtIndex(cpaths, i))
-		paths[i] = goString(cpath)
+		paths[i] = fromCFString(cpath)
 	}
 	return paths
 }
 
-func goString(cstr C.CFStringRef) string {
+func fromCFString(cstr C.CFStringRef) string {
 	defer C.CFRelease(C.CFTypeRef(cstr))
 
 	var (
@@ -125,198 +128,127 @@ func goString(cstr C.CFStringRef) string {
 }
 
 func Create(paths []string, since EventID, interval time.Duration,
-	flags CreateFlags, cb Callback) Stream {
+	flags CreateFlags) *Stream {
 
-	var stream Stream
-	convertForCreate(paths, since, interval, flags, cb,
-		func(ps C.CFMutableArrayRef, s C.FSEventStreamEventId,
-			i C.CFTimeInterval, fs C.FSEventStreamCreateFlags) Stream {
-
-			stream = Stream(unsafe.Pointer(C.fswatch_create(
-				ps,
-				s,
-				i,
-				fs)))
-			return stream
-		})
-	return stream
+	ch, ctx, ps, s, i, fs := convertForCreate(paths, since, interval, flags)
+	cstream := C.fswatch_create(&ctx, ps, s, i, fs)
+	releaseArray(ps)
+	return &Stream{Chan: ch, cstream: cstream}
 }
 
-func CreateRelativeToDevice(dev Device, paths []string, since EventID, interval time.Duration,
-	flags CreateFlags, cb Callback) Stream {
+func CreateRelativeToDevice(dev Device, paths []string, since EventID,
+	interval time.Duration, flags CreateFlags) *Stream {
 
 	cdev := C.dev_t(dev)
 
-	var stream Stream
-	convertForCreate(paths, since, interval, flags, cb,
-		func(ps C.CFMutableArrayRef, s C.FSEventStreamEventId,
-			i C.CFTimeInterval, fs C.FSEventStreamCreateFlags) Stream {
-
-			stream = Stream(unsafe.Pointer(C.fswatch_create_relative_to_device(
-				cdev,
-				ps,
-				s,
-				i,
-				fs)))
-			return stream
-		})
-	return stream
+	ch, ctx, ps, s, i, fs := convertForCreate(paths, since, interval, flags)
+	cstream := C.fswatch_create_relative_to_device(cdev, &ctx, ps, s, i, fs)
+	releaseArray(ps)
+	return &Stream{Chan: ch, cstream: cstream}
 }
 
 func convertForCreate(paths []string, since EventID, interval time.Duration,
-	flags CreateFlags, gocb Callback,
-	cb func(C.CFMutableArrayRef,
-		C.FSEventStreamEventId,
-		C.CFTimeInterval,
-		C.FSEventStreamCreateFlags) Stream) {
+	flags CreateFlags) (
+	chan []Event,
+	C.FSEventStreamContext,
+	C.CFMutableArrayRef,
+	C.FSEventStreamEventId,
+	C.CFTimeInterval,
+	C.FSEventStreamCreateFlags) {
 
 	cpaths := C.fswatch_make_mutable_array()
-	defer C.CFRelease(C.CFTypeRef(cpaths))
 	for _, dir := range paths {
 		path := C.CString(dir)
-		defer C.free(unsafe.Pointer(path))
-
 		str := C.CFStringCreateWithCString(nil, path, C.kCFStringEncodingUTF8)
 		C.CFArrayAppendValue(cpaths, unsafe.Pointer(str))
 	}
 
 	csince := C.FSEventStreamEventId(since)
 	cinterval := C.CFTimeInterval(interval / time.Second)
-	cflags := C.FSEventStreamCreateFlags(flags)
+	cflags := C.FSEventStreamCreateFlags(flags &^ CF_USECFTYPES)
 
-	stream := cb(cpaths, csince, cinterval, cflags)
+	ch := make(chan []Event)
+	context := C.FSEventStreamContext{info: unsafe.Pointer(&ch)}
 
-	watchers[stream] = watchingInfo{callback: gocb}
+	return ch, context, cpaths, csince, cinterval, cflags
 }
 
-func (s Stream) FlushAsync() EventID {
-	return EventID(C.FSEventStreamFlushAsync(C.FSEventStreamRef(unsafe.Pointer(s))))
+func releaseArray(ps C.CFMutableArrayRef) {
+	C.free(unsafe.Pointer(ps))
 }
 
-func (s Stream) Flush() {
-	C.FSEventStreamFlushSync(C.FSEventStreamRef(unsafe.Pointer(s)))
+func (s Stream) LatestEventID() EventID {
+	return EventID(C.FSEventStreamGetLatestEventId(s.cstream))
 }
 
-func (s Stream) Device() Device {
-	return Device(C.FSEventStreamGetDeviceBeingWatched(C.FSEventStreamRef(unsafe.Pointer(s))))
-}
-
-func (s Stream) Start() bool {
+func (s *Stream) Start() bool {
 	type watchSuccessData struct {
 		runloop C.CFRunLoopRef
 		stream  Stream
 	}
 
-	successChan := make(chan *watchSuccessData)
-
-	cs := C.FSEventStreamRef(unsafe.Pointer(s))
+	successChan := make(chan C.CFRunLoopRef)
 
 	go func() {
-		C.FSEventStreamScheduleWithRunLoop(cs, C.CFRunLoopGetCurrent(), C.kCFRunLoopCommonModes)
-		ok := C.FSEventStreamStart(cs) != C.FALSE
+		C.FSEventStreamScheduleWithRunLoop(s.cstream,
+			C.CFRunLoopGetCurrent(), C.kCFRunLoopCommonModes)
+		ok := C.FSEventStreamStart(s.cstream) != C.FALSE
 		if ok {
-			successChan <- &watchSuccessData{
-				runloop: C.CFRunLoopGetCurrent(),
-				stream:  s,
-			}
+			successChan <- C.CFRunLoopGetCurrent()
 			C.CFRunLoopRun()
 		} else {
 			successChan <- nil
 		}
 	}()
 
-	watchingData := <-successChan
+	runloop := <-successChan
 
-	if watchingData == nil {
+	if runloop == nil {
 		return false
 	}
-
-	newChan := make(chan []Event)
-	info := watchers[watchingData.stream]
-	info.channel = newChan
-	info.runloop = watchingData.runloop
-	watchers[watchingData.stream] = info
+	s.runloop = runloop
 	return true
 }
 
+func (s Stream) FlushAsync() EventID {
+	return EventID(C.FSEventStreamFlushAsync(s.cstream))
+}
+
+func (s Stream) Flush() {
+	C.FSEventStreamFlushSync(s.cstream)
+}
+
+func (s Stream) Device() Device {
+	return Device(C.FSEventStreamGetDeviceBeingWatched(s.cstream))
+}
+
 func (s Stream) Stop() {
-	C.FSEventStreamStop(C.FSEventStreamRef(unsafe.Pointer(s)))
-	C.FSEventStreamInvalidate(C.FSEventStreamRef(unsafe.Pointer(s)))
-	C.FSEventStreamRelease(C.FSEventStreamRef(unsafe.Pointer(s)))
-	C.CFRunLoopStop(watchers[s].runloop)
-	delete(watchers, s)
+	C.FSEventStreamStop(s.cstream)
 }
 
-func Unwatch(ch chan []Event) {
-	for stream, info := range watchers {
-		if ch == info.channel {
-			C.FSEventStreamStop(C.FSEventStreamRef(unsafe.Pointer(stream)))
-			C.FSEventStreamInvalidate(C.FSEventStreamRef(unsafe.Pointer(stream)))
-			C.FSEventStreamRelease(C.FSEventStreamRef(unsafe.Pointer(stream)))
-			C.CFRunLoopStop(info.runloop)
-		}
-	}
+func (s Stream) Invalidate() {
+	C.FSEventStreamInvalidate(s.cstream)
 }
 
-func WatchPaths(paths []string) chan []Event {
-	type watchSuccessData struct {
-		runloop C.CFRunLoopRef
-		stream  Stream
-	}
-
-	successChan := make(chan *watchSuccessData)
-
-	go func() {
-		pathsToWatch := C.fswatch_make_mutable_array()
-		defer C.CFRelease(C.CFTypeRef(pathsToWatch))
-
-		for _, dir := range paths {
-			path := C.CString(dir)
-			defer C.free(unsafe.Pointer(path))
-
-			str := C.CFStringCreateWithCString(nil, path, C.kCFStringEncodingUTF8)
-			C.CFArrayAppendValue(pathsToWatch, unsafe.Pointer(str))
-		}
-
-		stream := C.fswatch_create(pathsToWatch,
-			C.FSEventStreamEventId(NOW),
-			0.1,
-			C.kFSEventStreamCreateFlagNoDefer|C.kFSEventStreamCreateFlagFileEvents)
-		C.FSEventStreamScheduleWithRunLoop(stream, C.CFRunLoopGetCurrent(), C.kCFRunLoopCommonModes)
-
-		ok := C.FSEventStreamStart(stream) != 0
-		if ok {
-			successChan <- &watchSuccessData{
-				runloop: C.CFRunLoopGetCurrent(),
-				stream:  Stream(unsafe.Pointer(stream)),
-			}
-			C.CFRunLoopRun()
-		} else {
-			successChan <- nil
-		}
-	}()
-
-	watchingData := <-successChan
-
-	if watchingData == nil {
-		return nil
-	}
-
-	newChan := make(chan []Event)
-	watchers[watchingData.stream] = watchingInfo{
-		channel: newChan,
-		runloop: watchingData.runloop,
-		callback: func(s Stream, es []Event) {
-			println(es[0].Path)
-		},
-	}
-	return newChan
+func (s Stream) Release() {
+	C.FSEventStreamRelease(s.cstream)
+	C.CFRunLoopStop(s.runloop)
+	close(s.Chan)
 }
 
-//export watchDirsCallback
-func watchDirsCallback(stream C.FSEventStreamRef, count C.size_t, paths **C.char, flags *C.FSEventStreamEventFlags, ids *C.FSEventStreamEventId) {
+func (s Stream) Close() {
+	s.Flush()
+	s.Stop()
+	s.Invalidate()
+	s.Release()
+}
+
+//export goCallback
+func goCallback(stream C.FSEventStreamRef, info unsafe.Pointer,
+	count C.size_t, paths **C.char,
+	flags *C.FSEventStreamEventFlags, ids *C.FSEventStreamEventId) {
+
 	var events []Event
-
 	for i := 0; i < int(count); i++ {
 		cpaths := uintptr(unsafe.Pointer(paths)) + (uintptr(i) * unsafe.Sizeof(*paths))
 		cpath := *(**C.char)(unsafe.Pointer(cpaths))
@@ -325,7 +257,7 @@ func watchDirsCallback(stream C.FSEventStreamRef, count C.size_t, paths **C.char
 		cflag := *(*C.FSEventStreamEventFlags)(unsafe.Pointer(cflags))
 
 		cids := uintptr(unsafe.Pointer(ids)) + (uintptr(i) * unsafe.Sizeof(*ids))
-		cid := *(*C.FSEventStreamEventFlags)(unsafe.Pointer(cids))
+		cid := *(*C.FSEventStreamEventId)(unsafe.Pointer(cids))
 
 		events = append(events, Event{
 			Id:    EventID(cid),
@@ -333,8 +265,7 @@ func watchDirsCallback(stream C.FSEventStreamRef, count C.size_t, paths **C.char
 			Flags: EventFlags(cflag),
 		})
 	}
-	s := Stream(unsafe.Pointer(stream))
-	info := watchers[s]
-	info.channel <- events
-	info.callback(s, events)
+
+	ch := *((*chan []Event)(info))
+	ch <- events
 }
