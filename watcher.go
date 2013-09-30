@@ -23,6 +23,7 @@ static CFMutableArrayRef fswatch_make_mutable_array() {
 */
 import "C"
 import (
+	"sync"
 	"time"
 
 	"unsafe"
@@ -88,6 +89,9 @@ type Event struct {
 	Flags EventFlags
 }
 
+var mu = sync.Mutex{}
+var channels = make(map[C.FSEventStreamRef]chan []Event)
+
 // https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_4
 func Current() EventID {
 	return EventID(C.FSEventsGetCurrentEventId())
@@ -141,6 +145,9 @@ func New(paths []string, since EventID, interval time.Duration,
 	ch, ctx, ps, s, i, fs := convertForCreate(paths, since, interval, flags)
 	cstream := C.fswatch_create(&ctx, ps, s, i, fs)
 	releaseArray(ps)
+	mu.Lock()
+	channels[cstream] = ch
+	mu.Unlock()
 	return &Stream{Chan: ch, cstream: cstream}
 }
 
@@ -152,6 +159,9 @@ func NewRelative(dev Device, paths []string, since EventID,
 
 	ch, ctx, ps, s, i, fs := convertForCreate(paths, since, interval, flags)
 	cstream := C.fswatch_create_relative_to_device(cdev, &ctx, ps, s, i, fs)
+	mu.Lock()
+	channels[cstream] = ch
+	mu.Unlock()
 	releaseArray(ps)
 	return &Stream{Chan: ch, cstream: cstream}
 }
@@ -219,9 +229,13 @@ func (s *Stream) Start() bool {
 	runloop := <-successChan
 
 	if runloop == nil {
+		println("did not work")
 		return false
 	}
 	s.runloop = runloop
+	mu.Lock()
+	s.Chan = channels[s.cstream]
+	mu.Unlock()
 	return true
 }
 
@@ -260,7 +274,6 @@ func (s Stream) Release() {
 
 // Convenience function: flushes, stops, invalidates and releases the stream
 func (s Stream) Close() {
-	s.Flush()
 	s.Stop()
 	s.Invalidate()
 	s.Release()
@@ -289,6 +302,9 @@ func goCallback(stream C.FSEventStreamRef, info unsafe.Pointer,
 		})
 	}
 
-	ch := *((*chan []Event)(info))
+	// ch := *((*chan []Event)(info))
+	mu.Lock()
+	ch := channels[stream]
+	mu.Unlock()
 	ch <- events
 }
