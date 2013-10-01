@@ -16,12 +16,14 @@ import (
 )
 
 func TestCurrent(t *testing.T) {
+	t.Parallel()
 	id1 := Current()
 	id2 := Current()
 	assert.True(t, id1 == id2)
 }
 
 func TestLastEventBefore(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
@@ -32,52 +34,59 @@ func TestLastEventBefore(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 	stream := New(
-		[]string{base},
+		0,
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS)
+		CF_NODEFER|CF_FILEEVENTS,
+		base)
 	assert.True(t, stream.Chan != nil)
 }
 
 func TestStreamPaths(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 	stream := New(
-		[]string{base},
+		0,
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS)
+		CF_NODEFER|CF_FILEEVENTS,
+		base)
 	path := stream.Paths()[0]
 	assert.True(t, path == base)
 }
 
 func TestCreateRelativeToDevice(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
 	fi, _ := os.Stat(base)
 	dev := Device(fi.Sys().(*syscall.Stat_t).Dev)
 
-	stream := NewRelative(
+	stream := New(
 		dev,
-		[]string{base},
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS)
+		CF_NODEFER|CF_FILEEVENTS,
+		base)
 	assert.True(t, stream.Chan != nil)
 }
 
 func TestFlushAsync(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 	stream := New(
-		[]string{base},
+		0,
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS)
+		CF_NODEFER|CF_FILEEVENTS,
+		base)
 	stream.Start()
 	ioutil.WriteFile(base+"/holla", []byte{}, 777)
 	time.Sleep(time.Millisecond * 50)
@@ -86,64 +95,48 @@ func TestFlushAsync(t *testing.T) {
 }
 
 func TestFlush(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 	stream := New(
-		[]string{base},
+		0,
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS)
+		CF_NODEFER|CF_FILEEVENTS,
+		base)
 	stream.Start()
 	stream.Flush()
 }
 
 func TestStreamDevice(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
 	fi, _ := os.Stat(base)
 	dev := Device(fi.Sys().(*syscall.Stat_t).Dev)
 
-	stream := NewRelative(
+	stream := New(
 		dev,
-		[]string{base},
 		NOW,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS)
+		CF_NODEFER|CF_FILEEVENTS,
+		base)
 
 	adev := stream.Device()
 	assert.True(t, dev == adev)
 }
 
 func TestStart(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	stream := New(
-		[]string{base},
-		NOW,
-		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS)
+	stream := New(0, NOW, time.Millisecond*50, CF_NODEFER|CF_FILEEVENTS, base)
 	ok := stream.Start()
 	if ok != true {
 		t.Fatal("failed to start the stream")
 	}
-}
-
-func TestStop(t *testing.T) {
-	base, rm := TempDir()
-	defer rm()
-
-	stream := New(
-		[]string{base},
-		NOW,
-		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS)
-	ok := stream.Start()
-	if ok != true {
-		t.Fatal("failed to start the stream")
-	}
-	stream.Stop()
 }
 
 func withNew(base string, action func(string)) {
@@ -156,70 +149,77 @@ func withNew(base string, action func(string)) {
 }
 
 func TestFileChanges(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	s := New([]string{base}, NOW, time.Second/10, CF_FILEEVENTS)
+	s := New(0, NOW, time.Second/10, CF_FILEEVENTS, base)
 	s.Start()
 	defer s.Close()
 
 	withNew(base, func(dummyfile string) {
 		select {
 		case <-s.Chan:
-		case <-time.After(time.Second * 1):
+		case <-time.After(time.Minute):
 			t.Errorf("should have got some file event, but timed out")
 		}
 	})
 }
 
 func TestEventFlags(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	s := New([]string{base}, NOW, time.Second/10, CF_FILEEVENTS)
+	s := New(0, NOW, time.Second/10, CF_FILEEVENTS, base)
 	s.Start()
 	defer s.Close()
 
 	withNew(base, func(dummyfile string) {
 		select {
 		case events := <-s.Chan:
-			assert.Equals(t, len(events), 2)
+			events = getEvents(base, events)
+			assert.Equals(t, len(events), 1)
 
-			assert.True(t, events[1].Flags&EF_CREATED != 0)
-		case <-time.After(time.Second * 1):
+			assert.True(t, events[0].Flags&EF_CREATED != 0)
+		case <-time.After(time.Minute):
 			t.Errorf("should have got some file event, but timed out")
 		}
 	})
 }
 
 func TestCanGetPath(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	s := New([]string{base}, NOW, time.Second/10, CF_FILEEVENTS)
+	s := New(0, NOW, time.Second/10, CF_FILEEVENTS, base)
 	s.Start()
 	defer s.Close()
 
 	withNew(base, func(dummyfile string) {
 		select {
 		case events := <-s.Chan:
-			assert.Equals(t, len(events), 2)
+			events = getEvents(base, events)
+			assert.Equals(t, len(events), 1)
 
 			fullpath, _ := filepath.Abs(dummyfile)
 			fullpath, _ = filepath.EvalSymlinks(fullpath)
-			evPath, _ := filepath.EvalSymlinks(events[1].Path)
+			evPath, _ := filepath.EvalSymlinks(events[0].Path)
 			assert.Equals(t, evPath, fullpath)
-		case <-time.After(time.Second * 2):
+		case <-time.After(time.Minute):
 			t.Errorf("timed out")
 		}
 	})
 }
 
 func TestOnlyWatchesSpecifiedPaths(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	s := New([]string{filepath.Join(base, "imaginaryfile")}, NOW, time.Second/10, CF_FILEEVENTS)
+	s := New(0, NOW, time.Second/10, CF_FILEEVENTS,
+		filepath.Join(base, "imaginaryfile"))
 	s.Start()
 	defer s.Close()
 
@@ -227,35 +227,39 @@ func TestOnlyWatchesSpecifiedPaths(t *testing.T) {
 		select {
 		case evs := <-s.Chan:
 			t.Errorf("should have timed out, but received:%v", evs)
-		case <-time.After(time.Second * 1):
+		case <-time.After(time.Second * 10):
 		}
 	})
 }
 
 func TestCanUnwatch(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	s := New([]string{base}, NOW, time.Second/10, CF_FILEEVENTS)
+	s := New(0, NOW, time.Second/10, CF_FILEEVENTS, base)
 	s.Start()
 	s.Close()
 
 	withNew(base, func(dummyfile string) {
 		select {
 		case evs, ok := <-s.Chan:
-			if ok {
+			evs = getEvents(base, evs)
+			if ok && len(evs) > 0 {
 				t.Errorf("should have timed out, but received: %#v", evs)
 			}
-		case <-time.After(time.Second * 1):
+		case <-time.After(time.Minute):
 		}
 	})
 }
 
 func TestMultipleFile(t *testing.T) {
+	t.Parallel()
 	base, rm := TempDir()
 	defer rm()
 
-	s := New([]string{base}, NOW, time.Second/10, CF_FILEEVENTS)
+	s := New(
+		0, NOW, time.Second/10, CF_FILEEVENTS, base)
 	s.Start()
 	defer s.Close()
 
@@ -268,20 +272,27 @@ func TestMultipleFile(t *testing.T) {
 LOOP:
 	for {
 		select {
-		case e, ok := <-s.Chan:
-			if !ok {
-				break LOOP
-			}
-			for _, item := range e[1:] {
+		case e := <-s.Chan:
+			e = getEvents(base, e)
+			for _, item := range e {
 				p, _ := filepath.Rel(base, item.Path)
 				events = append(events, p)
 			}
-		case <-time.After(time.Second * 5):
+		case <-time.After(time.Minute):
 			break LOOP
 		}
 	}
 
 	assert.Equals(t, strings.Join(events, " "), strings.Join(files, " "))
+}
+
+func getEvents(base string, in []Event) (out []Event) {
+	for _, e := range in {
+		if e.Path != base {
+			out = append(out, e)
+		}
+	}
+	return
 }
 
 func TempDir() (string, func()) {

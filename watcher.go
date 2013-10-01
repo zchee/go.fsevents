@@ -138,47 +138,15 @@ func fromCFString(cstr C.CFStringRef) string {
 	return C.GoString(&buf[0])
 }
 
-// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_9
-func New(paths []string, since EventID, interval time.Duration,
-	flags CreateFlags) *Stream {
-
-	ch, ctx, ps, s, i, fs := convertForCreate(paths, since, interval, flags)
-	cstream := C.fswatch_create(&ctx, ps, s, i, fs)
-	releaseArray(ps)
-	mu.Lock()
-	channels[cstream] = ch
-	mu.Unlock()
-	return &Stream{Chan: ch, cstream: cstream}
-}
-
-// https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_10
-func NewRelative(dev Device, paths []string, since EventID,
-	interval time.Duration, flags CreateFlags) *Stream {
-
-	cdev := C.dev_t(dev)
-
-	ch, ctx, ps, s, i, fs := convertForCreate(paths, since, interval, flags)
-	cstream := C.fswatch_create_relative_to_device(cdev, &ctx, ps, s, i, fs)
-	mu.Lock()
-	channels[cstream] = ch
-	mu.Unlock()
-	releaseArray(ps)
-	return &Stream{Chan: ch, cstream: cstream}
-}
-
-func convertForCreate(paths []string, since EventID, interval time.Duration,
-	flags CreateFlags) (
-	chan []Event,
-	C.FSEventStreamContext,
-	C.CFMutableArrayRef,
-	C.FSEventStreamEventId,
-	C.CFTimeInterval,
-	C.FSEventStreamCreateFlags) {
+func New(dev Device, since EventID, interval time.Duration, flags CreateFlags,
+	paths ...string) *Stream {
 
 	cpaths := C.fswatch_make_mutable_array()
+	defer C.free(unsafe.Pointer(cpaths))
 	for _, dir := range paths {
 		path := C.CString(dir)
 		str := C.CFStringCreateWithCString(nil, path, C.kCFStringEncodingUTF8)
+		defer C.free(unsafe.Pointer(str))
 		C.CFArrayAppendValue(cpaths, unsafe.Pointer(str))
 	}
 
@@ -187,13 +155,22 @@ func convertForCreate(paths []string, since EventID, interval time.Duration,
 	cflags := C.FSEventStreamCreateFlags(flags &^ CF_USECFTYPES)
 
 	ch := make(chan []Event)
-	context := C.FSEventStreamContext{info: unsafe.Pointer(&ch)}
+	ctx := C.FSEventStreamContext{info: unsafe.Pointer(&ch)}
 
-	return ch, context, cpaths, csince, cinterval, cflags
-}
+	var cstream C.FSEventStreamRef
+	if dev == 0 {
+		cstream = C.fswatch_create(&ctx, cpaths, csince, cinterval, cflags)
+	} else {
+		cdev := C.dev_t(dev)
+		cstream = C.fswatch_create_relative_to_device(
+			cdev, &ctx, cpaths, csince, cinterval, cflags)
+	}
 
-func releaseArray(ps C.CFMutableArrayRef) {
-	C.free(unsafe.Pointer(ps))
+	mu.Lock()
+	channels[cstream] = ch
+	mu.Unlock()
+
+	return &Stream{Chan: ch, cstream: cstream}
 }
 
 // https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_14
@@ -229,7 +206,6 @@ func (s *Stream) Start() bool {
 	runloop := <-successChan
 
 	if runloop == nil {
-		println("did not work")
 		return false
 	}
 	s.runloop = runloop
@@ -269,7 +245,6 @@ func (s Stream) Invalidate() {
 func (s Stream) Release() {
 	C.FSEventStreamRelease(s.cstream)
 	C.CFRunLoopStop(s.runloop)
-	close(s.Chan)
 }
 
 // Convenience function: flushes, stops, invalidates and releases the stream
@@ -302,9 +277,12 @@ func goCallback(stream C.FSEventStreamRef, info unsafe.Pointer,
 		})
 	}
 
-	// ch := *((*chan []Event)(info))
 	mu.Lock()
 	ch := channels[stream]
 	mu.Unlock()
 	ch <- events
+	infoCh := *((*chan []Event)(info))
+	if infoCh != ch {
+		panic("fuuu")
+	}
 }
