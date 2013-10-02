@@ -283,6 +283,6 @@ func goCallback(stream C.FSEventStreamRef, info unsafe.Pointer,
 	ch <- events
 	infoCh := *((*chan []Event)(info))
 	if infoCh != ch {
-		panic("fuuu")
+		println("channels are not equal!")
 	}
 }
