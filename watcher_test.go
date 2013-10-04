@@ -227,7 +227,7 @@ func TestOnlyWatchesSpecifiedPaths(t *testing.T) {
 		select {
 		case evs := <-s.Chan:
 			t.Errorf("should have timed out, but received:%v", evs)
-		case <-time.After(time.Second * 10):
+		case <-time.After(time.Millisecond * 200):
 		}
 	})
 }
@@ -248,7 +248,7 @@ func TestCanUnwatch(t *testing.T) {
 			if ok && len(evs) > 0 {
 				t.Errorf("should have timed out, but received: %#v", evs)
 			}
-		case <-time.After(time.Minute):
+		case <-time.After(time.Millisecond * 200):
 		}
 	})
 }
@@ -277,6 +277,9 @@ LOOP:
 			for _, item := range e {
 				p, _ := filepath.Rel(base, item.Path)
 				events = append(events, p)
+			}
+			if len(events) == len(files) {
+				break LOOP
 			}
 		case <-time.After(time.Minute):
 			break LOOP
