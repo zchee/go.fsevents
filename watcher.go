@@ -23,7 +23,6 @@ static CFMutableArrayRef fswatch_make_mutable_array() {
 */
 import "C"
 import (
-	"sync"
 	"time"
 
 	"unsafe"
@@ -89,9 +88,6 @@ type Event struct {
 	Flags EventFlags
 }
 
-var mu = sync.Mutex{}
-var channels = make(map[C.FSEventStreamRef]chan []Event)
-
 // https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_4
 func Current() EventID {
 	return EventID(C.FSEventsGetCurrentEventId())
@@ -145,6 +141,7 @@ func New(dev Device, since EventID, interval time.Duration, flags CreateFlags,
 	defer C.free(unsafe.Pointer(cpaths))
 	for _, dir := range paths {
 		path := C.CString(dir)
+		defer C.free(unsafe.Pointer(path))
 		str := C.CFStringCreateWithCString(nil, path, C.kCFStringEncodingUTF8)
 		defer C.free(unsafe.Pointer(str))
 		C.CFArrayAppendValue(cpaths, unsafe.Pointer(str))
@@ -154,8 +151,10 @@ func New(dev Device, since EventID, interval time.Duration, flags CreateFlags,
 	cinterval := C.CFTimeInterval(interval / time.Second)
 	cflags := C.FSEventStreamCreateFlags(flags &^ CF_USECFTYPES)
 
-	ch := make(chan []Event)
-	ctx := C.FSEventStreamContext{info: unsafe.Pointer(&ch)}
+	s := new(Stream)
+	s.Chan = make(chan []Event)
+
+	ctx := C.FSEventStreamContext{info: unsafe.Pointer(&s.Chan)}
 
 	var cstream C.FSEventStreamRef
 	if dev == 0 {
@@ -165,12 +164,9 @@ func New(dev Device, since EventID, interval time.Duration, flags CreateFlags,
 		cstream = C.fswatch_create_relative_to_device(
 			cdev, &ctx, cpaths, csince, cinterval, cflags)
 	}
+	s.cstream = cstream
 
-	mu.Lock()
-	channels[cstream] = ch
-	mu.Unlock()
-
-	return &Stream{Chan: ch, cstream: cstream}
+	return s
 }
 
 // https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_14
@@ -209,9 +205,6 @@ func (s *Stream) Start() bool {
 		return false
 	}
 	s.runloop = runloop
-	mu.Lock()
-	s.Chan = channels[s.cstream]
-	mu.Unlock()
 	return true
 }
 
@@ -277,12 +270,6 @@ func goCallback(stream C.FSEventStreamRef, info unsafe.Pointer,
 		})
 	}
 
-	mu.Lock()
-	ch := channels[stream]
-	mu.Unlock()
+	ch := *((*chan []Event)(info))
 	ch <- events
-	infoCh := *((*chan []Event)(info))
-	if infoCh != ch {
-		println("channels are not equal!")
-	}
 }
