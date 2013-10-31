@@ -70,6 +70,7 @@ type EventID C.FSEventStreamEventId
 // EventID has type UInt64 but this constant is represented as -1
 // which is represented by 63 1's in memory
 const NOW EventID = (1 << 64) - 1
+const ALL EventID = 0
 
 // UUID representing a Mountpoint in OS X.
 // fi, _ := os.Stat("")

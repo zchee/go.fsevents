@@ -2,7 +2,9 @@ package fsevents
 
 import (
 	"io/ioutil"
+	//"log"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -303,5 +305,78 @@ func TempDir() (string, func()) {
 	path, _ = filepath.EvalSymlinks(path)
 	return path, func() {
 		os.RemoveAll(path)
+	}
+}
+
+// Create 10 folders with 10 files each, all under one top-level folder,
+// for a total of 111 events.
+func with100Files(base string, action func(base string)) {
+	for i := 0; i < 10; i++ {
+		dir := filepath.Join(base, strconv.Itoa(i)+".dir")
+		os.Mkdir(dir, 0755)
+		for j := 0; j < 10; j++ {
+			os.Create(filepath.Join(dir, "dummy"+strconv.Itoa(j)+".txt"))
+		}
+	}
+	action(base)
+}
+
+func Test100Files(t *testing.T) {
+	t.Parallel()
+	base, rm := TempDir()
+	defer rm()
+
+	s := New(0, NOW, time.Second/10, CF_FILEEVENTS, base)
+	s.Start()
+	defer s.Close()
+
+	count := 0
+	with100Files(base, func(base string) {
+		for {
+			select {
+			case events := <-s.Chan:
+				for _, e := range events {
+					count++
+					_ = e
+					//log.Println("a)", count, e)
+					if count >= 111 {
+						return
+					}
+				}
+			case <-time.After(time.Second * 10):
+				t.Errorf("should have got received 111 file events, but timed out")
+				return
+			}
+		}
+	})
+}
+
+func Test100OldFiles(t *testing.T) {
+	t.Parallel()
+	base, rm := TempDir()
+	defer rm()
+
+	with100Files(base, func(base string) {})
+
+	s := New(0, ALL, time.Second/10, CF_FILEEVENTS, base)
+	s.Start()
+	defer s.Close()
+
+	count := 0
+	for {
+		select {
+		case events := <-s.Chan:
+			for _, e := range events {
+				count++
+				_ = e
+				//log.Println("a)", count, e)
+				if count >= 111 {
+					return
+				}
+			}
+		case <-time.After(time.Second * 10):
+			t.Errorf("should have got received 111 file events, but timed out")
+			return
+		}
 	}
 }
