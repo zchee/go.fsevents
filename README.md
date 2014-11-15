@@ -1,12 +1,12 @@
-Go binding for [FSEvents](https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#//apple_ref/doc/uid/FSEvents.h-DontLinkElementID_33)
+# FSEvents bindings for Go (OS X)
 
-Code is based on [sdeguti's go.fsevents](https://github.com/sdegutis)
-and [samjacobson's changes to fsnotify](https://github.com/samjacobson/fsnotify)
+[![GoDoc](https://godoc.org/github.com/go-fsnotify/fsevents?status.svg)](https://godoc.org/github.com/go-fsnotify/fsevents)
 
-*Documentation:* [GoDoc](http://godoc.org/github.com/ronbu/fsevents)
+[FSEvents](https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#//apple_ref/doc/uid/FSEvents.h-DontLinkElementID_33) allows an application to monitor a whole file system or portion of it. FSEvents is only available on OS X.
 
-## TODO/Limitations
+This code is based on **go.fsevents** by [Steven Degutis](https://github.com/sdegutis).
+
+## Limitations
 
 * Creates new thread for every stream
 * Does not give access to the whole FSEvents API
-* Better testing
