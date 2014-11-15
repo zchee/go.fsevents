@@ -2,26 +2,23 @@ package fsevents
 
 import (
 	"io/ioutil"
-	//"log"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"testing"
-)
-import "github.com/couchbaselabs/go.assert"
-
-import (
-	"os"
-	"time"
 )
 
 func TestCurrent(t *testing.T) {
 	t.Parallel()
 	id1 := Current()
 	id2 := Current()
-	assert.True(t, id1 == id2)
+	if id1 != id2 {
+		t.Errorf("Expected EventID %#v to equal %#v.", id1, id2)
+	}
 }
 
 func TestLastEventBefore(t *testing.T) {
@@ -32,7 +29,9 @@ func TestLastEventBefore(t *testing.T) {
 	fi, _ := os.Stat(base)
 	dev := Device(fi.Sys().(*syscall.Stat_t).Dev)
 	id := LastEventBefore(dev, time.Now())
-	assert.True(t, id != 0)
+	if id == 0 {
+		t.Errorf("Expected LastEventBefore to be a non-zero, got %#v.", id)
+	}
 }
 
 func TestNew(t *testing.T) {
@@ -45,7 +44,9 @@ func TestNew(t *testing.T) {
 		time.Millisecond*50,
 		CF_NODEFER|CF_FILEEVENTS,
 		base)
-	assert.True(t, stream.Chan != nil)
+	if stream.Chan == nil {
+		t.Error("Expected stream.Chan to not be nil.")
+	}
 }
 
 func TestStreamPaths(t *testing.T) {
@@ -59,7 +60,9 @@ func TestStreamPaths(t *testing.T) {
 		CF_NODEFER|CF_FILEEVENTS,
 		base)
 	path := stream.Paths()[0]
-	assert.True(t, path == base)
+	if path != base {
+		t.Errorf("Expected %#v to equal %#v.", path, base)
+	}
 }
 
 func TestCreateRelativeToDevice(t *testing.T) {
@@ -76,7 +79,9 @@ func TestCreateRelativeToDevice(t *testing.T) {
 		time.Millisecond*50,
 		CF_NODEFER|CF_FILEEVENTS,
 		base)
-	assert.True(t, stream.Chan != nil)
+	if stream.Chan == nil {
+		t.Error("Expected stream.Chan to not be nil.")
+	}
 }
 
 func TestFlushAsync(t *testing.T) {
@@ -93,7 +98,9 @@ func TestFlushAsync(t *testing.T) {
 	ioutil.WriteFile(base+"/holla", []byte{}, 777)
 	time.Sleep(time.Millisecond * 50)
 	event := stream.FlushAsync()
-	assert.True(t, event != 0)
+	if event == 0 {
+		t.Errorf("Expected FlushAsync EventID to be a non-zero, got %#v.", event)
+	}
 }
 
 func TestFlush(t *testing.T) {
@@ -126,7 +133,9 @@ func TestStreamDevice(t *testing.T) {
 		base)
 
 	adev := stream.Device()
-	assert.True(t, dev == adev)
+	if dev != adev {
+		t.Errorf("Expected %#v to equal %#v.", dev, adev)
+	}
 }
 
 func TestStart(t *testing.T) {
@@ -181,9 +190,12 @@ func TestEventFlags(t *testing.T) {
 		select {
 		case events := <-s.Chan:
 			events = getEvents(base, events)
-			assert.Equals(t, len(events), 1)
-
-			assert.True(t, events[0].Flags&EF_CREATED != 0)
+			if len(events) != 1 {
+				t.Errorf("Expected 1 event, got %#v.", len(events))
+			}
+			if events[0].Flags&EF_CREATED != EF_CREATED {
+				t.Errorf("Expected event to be EF_CREATED, got %#v.", events[0].Flags)
+			}
 		case <-time.After(time.Minute):
 			t.Errorf("should have got some file event, but timed out")
 		}
@@ -203,12 +215,15 @@ func TestCanGetPath(t *testing.T) {
 		select {
 		case events := <-s.Chan:
 			events = getEvents(base, events)
-			assert.Equals(t, len(events), 1)
-
+			if len(events) != 1 {
+				t.Errorf("Expected 1 event, got %#v.", len(events))
+			}
 			fullpath, _ := filepath.Abs(dummyfile)
 			fullpath, _ = filepath.EvalSymlinks(fullpath)
 			evPath, _ := filepath.EvalSymlinks(events[0].Path)
-			assert.Equals(t, evPath, fullpath)
+			if evPath != fullpath {
+				t.Errorf("Expected %#v to equal %#v.", evPath, fullpath)
+			}
 		case <-time.After(time.Minute):
 			t.Errorf("timed out")
 		}
@@ -288,7 +303,11 @@ LOOP:
 		}
 	}
 
-	assert.Equals(t, strings.Join(events, " "), strings.Join(files, " "))
+	es := strings.Join(events, " ")
+	fs := strings.Join(files, " ")
+	if es != fs {
+		t.Errorf("Expected events %#v to equal files %#v.", es, fs)
+	}
 }
 
 func getEvents(base string, in []Event) (out []Event) {
