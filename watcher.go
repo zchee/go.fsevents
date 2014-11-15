@@ -225,27 +225,27 @@ func (s Stream) Device() Device {
 }
 
 // https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_21
-func (s Stream) Stop() {
+func (s Stream) stop() {
 	C.FSEventStreamStop(s.cstream)
 }
 
 // https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_15
-func (s Stream) Invalidate() {
+func (s Stream) invalidate() {
 	C.FSEventStreamInvalidate(s.cstream)
 }
 
 // Releases all resources and closes the channel
 // https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/Reference/reference.html#jumpTo_16
-func (s Stream) Release() {
+func (s Stream) release() {
 	C.FSEventStreamRelease(s.cstream)
 	C.CFRunLoopStop(s.runloop)
 }
 
 // Convenience function: flushes, stops, invalidates and releases the stream
 func (s Stream) Close() {
-	s.Stop()
-	s.Invalidate()
-	s.Release()
+	s.stop()
+	s.invalidate()
+	s.release()
 }
 
 //export goCallback
