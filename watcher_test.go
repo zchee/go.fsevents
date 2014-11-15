@@ -40,9 +40,9 @@ func TestNew(t *testing.T) {
 	defer rm()
 	stream := New(
 		0,
-		NOW,
+		SinceNow,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
+		NoDefer|FileEvents,
 		base)
 	if stream.Chan == nil {
 		t.Error("Expected stream.Chan to not be nil.")
@@ -55,9 +55,9 @@ func TestStreamPaths(t *testing.T) {
 	defer rm()
 	stream := New(
 		0,
-		NOW,
+		SinceNow,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
+		NoDefer|FileEvents,
 		base)
 	path := stream.Paths()[0]
 	if path != base {
@@ -75,9 +75,9 @@ func TestCreateRelativeToDevice(t *testing.T) {
 
 	stream := New(
 		dev,
-		NOW,
+		SinceNow,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
+		NoDefer|FileEvents,
 		base)
 	if stream.Chan == nil {
 		t.Error("Expected stream.Chan to not be nil.")
@@ -90,9 +90,9 @@ func TestFlushAsync(t *testing.T) {
 	defer rm()
 	stream := New(
 		0,
-		NOW,
+		SinceNow,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
+		NoDefer|FileEvents,
 		base)
 	stream.Start()
 	ioutil.WriteFile(base+"/holla", []byte{}, 777)
@@ -109,9 +109,9 @@ func TestFlush(t *testing.T) {
 	defer rm()
 	stream := New(
 		0,
-		NOW,
+		SinceNow,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
+		NoDefer|FileEvents,
 		base)
 	stream.Start()
 	stream.Flush()
@@ -127,9 +127,9 @@ func TestStreamDevice(t *testing.T) {
 
 	stream := New(
 		dev,
-		NOW,
+		SinceNow,
 		time.Millisecond*50,
-		CF_NODEFER|CF_FILEEVENTS,
+		NoDefer|FileEvents,
 		base)
 
 	adev := stream.Device()
@@ -143,7 +143,7 @@ func TestStart(t *testing.T) {
 	base, rm := TempDir()
 	defer rm()
 
-	stream := New(0, NOW, time.Millisecond*50, CF_NODEFER|CF_FILEEVENTS, base)
+	stream := New(0, SinceNow, time.Millisecond*50, NoDefer|FileEvents, base)
 	ok := stream.Start()
 	if ok != true {
 		t.Fatal("failed to start the stream")
@@ -164,7 +164,7 @@ func TestFileChanges(t *testing.T) {
 	base, rm := TempDir()
 	defer rm()
 
-	s := New(0, NOW, time.Second/10, CF_FILEEVENTS, base)
+	s := New(0, SinceNow, time.Second/10, FileEvents, base)
 	s.Start()
 	defer s.Close()
 
@@ -182,7 +182,7 @@ func TestEventFlags(t *testing.T) {
 	base, rm := TempDir()
 	defer rm()
 
-	s := New(0, NOW, time.Second/10, CF_FILEEVENTS, base)
+	s := New(0, SinceNow, time.Second/10, FileEvents, base)
 	s.Start()
 	defer s.Close()
 
@@ -193,8 +193,8 @@ func TestEventFlags(t *testing.T) {
 			if len(events) != 1 {
 				t.Errorf("Expected 1 event, got %#v.", len(events))
 			}
-			if events[0].Flags&EF_CREATED != EF_CREATED {
-				t.Errorf("Expected event to be EF_CREATED, got %#v.", events[0].Flags)
+			if events[0].Flags&Created != Created {
+				t.Errorf("Expected event to be Created, got %#v.", events[0].Flags)
 			}
 		case <-time.After(time.Minute):
 			t.Errorf("should have got some file event, but timed out")
@@ -207,7 +207,7 @@ func TestCanGetPath(t *testing.T) {
 	base, rm := TempDir()
 	defer rm()
 
-	s := New(0, NOW, time.Second/10, CF_FILEEVENTS, base)
+	s := New(0, SinceNow, time.Second/10, FileEvents, base)
 	s.Start()
 	defer s.Close()
 
@@ -235,7 +235,7 @@ func TestOnlyWatchesSpecifiedPaths(t *testing.T) {
 	base, rm := TempDir()
 	defer rm()
 
-	s := New(0, NOW, time.Second/10, CF_FILEEVENTS,
+	s := New(0, SinceNow, time.Second/10, FileEvents,
 		filepath.Join(base, "imaginaryfile"))
 	s.Start()
 	defer s.Close()
@@ -254,7 +254,7 @@ func TestCanUnwatch(t *testing.T) {
 	base, rm := TempDir()
 	defer rm()
 
-	s := New(0, NOW, time.Second/10, CF_FILEEVENTS, base)
+	s := New(0, SinceNow, time.Second/10, FileEvents, base)
 	s.Start()
 	s.Close()
 
@@ -276,7 +276,7 @@ func TestMultipleFile(t *testing.T) {
 	defer rm()
 
 	s := New(
-		0, NOW, time.Second/10, CF_FILEEVENTS, base)
+		0, SinceNow, time.Second/10, FileEvents, base)
 	s.Start()
 	defer s.Close()
 
@@ -345,7 +345,7 @@ func Test100Files(t *testing.T) {
 	base, rm := TempDir()
 	defer rm()
 
-	s := New(0, NOW, time.Second/10, CF_FILEEVENTS, base)
+	s := New(0, SinceNow, time.Second/10, FileEvents, base)
 	s.Start()
 	defer s.Close()
 
@@ -377,7 +377,7 @@ func Test100OldFiles(t *testing.T) {
 
 	with100Files(base, func(base string) {})
 
-	s := New(0, ALL, time.Second/10, CF_FILEEVENTS, base)
+	s := New(0, SinceAll, time.Second/10, FileEvents, base)
 	s.Start()
 	defer s.Close()
 
